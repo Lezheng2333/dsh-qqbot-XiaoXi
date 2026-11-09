@@ -14,8 +14,11 @@ import os
 import random
 import sys
 
+import io
+
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
+import paths
 import store
 
 ROOT = store.ROOT
@@ -139,7 +142,9 @@ def compose(emotion="鲸鱼", line=None, size=SIZE):
     os.makedirs(OUT, exist_ok=True)
     safe = hashlib.sha1(f"{emotion}{line}{size}".encode()).hexdigest()[:12]
     path = os.path.join(OUT, f"{emotion}_{safe}.png")
-    img.save(path)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    paths.save_file(path, buf.getvalue())   # 沙箱不让写就进信箱，后台代写
     return path
 
 

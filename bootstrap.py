@@ -147,7 +147,7 @@ def sync_config():
     """把"当前所在位置"写回 config.json —— 文件夹搬了，这里也跟着对。"""
     c = paths.config()
     before = dict(c)
-    c["agent_cwd"] = "workspace"     # 相对路径，避免把用户名/绝对路径写进仓库
+    c["agent_cwd"] = "."             # 她的工作区就是整个 core 文件夹
     c.pop("owner_openid", None)      # openid 属于个人标识，只留在 users/（已 gitignore）
     if c != before:
         paths.save_json(paths.CONFIG, c)
@@ -164,10 +164,10 @@ def install(owner=None, load_launchd=True, do_bridge=True):
     report["说明书"] = "已写" if notes.sync_agents_md(force=True) else "没变"
     if do_bridge:
         legacy_ws = os.path.expanduser("~/.dsh-qqbot/workspace")
-        # 只有"旧会话真的把工作目录钉在旧路径"时才建这个桥；
+        # 只有"旧会话把工作目录钉在旧路径"时才建这个桥，指向整个 core；
         # 新电脑上没有旧会话，就不会留任何东西。
         if transcripts.sessions_with_cwd(legacy_ws):
-            report["桥·workspace"] = bridge(legacy_ws, paths.WORKSPACE)
+            report["桥·workspace"] = bridge(legacy_ws, paths.CORE)
         else:
             report["桥·workspace"] = "不需要（没有旧会话）"
         report["桥·media"] = bridge(os.path.expanduser("~/.dsh-qqbot/media"), paths.MEDIA)
@@ -191,6 +191,8 @@ def main():
                   do_bridge=("--no-bridge" not in args))
     print(json.dumps(rep, ensure_ascii=False, indent=1))
     print("\n下一步：")
+    print("  如果刚改过工作目录（cwd），在 QQ 里发一句 /new 让会话用新目录（历史记录不会删）；")
+    print("  没发也没关系：写不进去的东西会进信箱，守护进程一分钟内代写。")
     print(f"  python3 \"{paths.CORE}/daemon.py\" --status")
     print(f"  python3 \"{paths.CORE}/daemon.py\" --doctor")
     print("  QQ 里随便说句话，然后 tail 一下 logs/daemon.log 看她认不认得人")

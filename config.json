@@ -31,5 +31,5 @@
  "lat": 30.5728,
  "lon": 104.0668,
  "weather": true,
- "agent_cwd": "workspace"
+ "agent_cwd": "."
 }

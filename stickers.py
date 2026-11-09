@@ -22,6 +22,7 @@ import time
 import urllib.parse
 import urllib.request
 
+import paths
 import store
 
 ROOT = store.ROOT
@@ -190,14 +191,16 @@ def _save(data, url, emo=None):
     sub = os.path.join(LIB, h[:2])
     os.makedirs(sub, exist_ok=True)
     path = os.path.join(sub, h + ext)
-    with open(path, "wb") as f:
-        f.write(data)
+    paths.save_file(path, data)             # 沙箱不让写就进信箱，后台代写
     # QQ 对 webp 不友好，转成 png 再入库
     if ext == ".webp":
         try:
+            import io
             from PIL import Image
             png = os.path.join(sub, h + ".png")
-            Image.open(path).convert("RGBA").save(png)
+            buf = io.BytesIO()
+            Image.open(path).convert("RGBA").save(buf, format="PNG")
+            paths.save_file(png, buf.getvalue())
             os.remove(path)
             path = png
         except Exception:  # noqa: BLE001

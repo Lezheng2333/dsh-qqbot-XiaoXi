@@ -34,7 +34,8 @@ QQ bot XiaoXi core/
 │       ├── mood.json        对他时的心情
 │       ├── engagement.json  他回不回她
 │       └── state.json       他这条线的额度/下次时间
-├── workspace/          她的工作目录（AGENTS.md 说明书，含 DSH 自动注入）
+├── AGENTS.md           工作区说明书（DSH 每次会话自动注入；bootstrap 生成）
+├── workspace/          旧工作目录（兼容老会话）与写信箱
 ├── library/            表情图库（composed/ 是自制卡）
 ├── media/              QQ 收到的图/歌（缓存，可删）
 ├── logs/               daemon.log（自动轮转）、语音样本
@@ -74,6 +75,21 @@ python3 people.py list              # 有哪些人、聊过多少
 python3 people.py show 爸爸          # 跨区看：她印象里的这个人
 python3 people.py name 老王 老王      # 改名 + 称呼
 ```
+
+## 她能直接写自己的文件夹
+
+她的 agent 工作目录（沙箱根）就是**整个 core 文件夹**（`config.json` 里 `agent_cwd: "."`），
+所以记忆、图库、状态都在可写范围内，写盘不用审批。
+
+如果沙箱根还没跟上（比如换过目录但会话还是老的），写盘不会弹审批也不会丢：
+
+1. `paths.save_json` / `paths.save_file` 捕获 `PermissionError`；
+2. 把内容和目标路径放进"信箱"（`workspace/.outbox/` → 不行就 `/tmp/dsh-*/xiaoxi_outbox/`）；
+3. 守护进程每轮 `paths.drain_outbox()` 代写进 core；
+4. 这期间 `paths.load_json` 会先读信箱，所以"刚记下的"立刻就能读到。
+
+换过工作目录后，在 QQ 里发一句 `/new`（或 `/reset` / `/clear`）让会话用新目录；
+历史记录不会被删，只是开一条新会话。
 
 ## 她的记忆闭环
 

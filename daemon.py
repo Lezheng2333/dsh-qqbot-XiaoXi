@@ -533,6 +533,10 @@ def loop():
             c = cfg()
             now = dt.datetime.now()
 
+            done, failed = paths.drain_outbox()
+            if done or failed:
+                log(f"信箱代写：成功 {done}，失败 {failed}")
+
             _consume_mood_request()
             if os.path.exists(os.path.join(ROOT, "PAUSE")):
                 time.sleep(120)

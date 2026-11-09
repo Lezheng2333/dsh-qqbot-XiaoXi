@@ -105,7 +105,7 @@ def memory_lines(uid, n=3, now=None):
 
 # ────────────────────────── 工作区说明书（不含私事） ──────────────────────────
 
-AGENTS_MD = os.path.join(paths.WORKSPACE, "AGENTS.md")
+AGENTS_MD = paths.AGENTS_MD
 
 
 def _agents_body():

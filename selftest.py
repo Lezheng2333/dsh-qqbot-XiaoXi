@@ -17,7 +17,9 @@ os.environ.setdefault("XIAOXI_STATE_DIR", os.path.join(_TMP, "state"))
 os.environ.setdefault("XIAOXI_LOGS", os.path.join(_TMP, "logs"))
 os.environ.setdefault("XIAOXI_WORKSPACE", os.path.join(_TMP, "workspace"))
 os.environ.setdefault("XIAOXI_USERS", os.path.join(_TMP, "users"))
-for k in ("XIAOXI_STATE_DIR", "XIAOXI_LOGS", "XIAOXI_WORKSPACE", "XIAOXI_USERS"):
+os.environ.setdefault("XIAOXI_SCRATCH", os.path.join(_TMP, "scratch"))
+for k in ("XIAOXI_STATE_DIR", "XIAOXI_LOGS", "XIAOXI_WORKSPACE", "XIAOXI_USERS",
+          "XIAOXI_SCRATCH"):
     os.makedirs(os.environ[k], exist_ok=True)
 
 import daemon  # noqa: E402

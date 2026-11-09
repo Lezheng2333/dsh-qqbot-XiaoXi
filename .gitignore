@@ -23,3 +23,9 @@ __pycache__/
 *.pyc
 .DS_Store
 .venv/
+
+# 她的沙箱工作区 = core 本身，这些生成的/运行中的东西别提交
+/AGENTS.md
+/mood_request.json
+/workspace/
+/.outbox/
