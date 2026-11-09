@@ -130,12 +130,16 @@ def session_dirs(force=False):
     """小汐的会话目录：目录名规则猜 + 实际探测，两者合并，缓存 10 分钟。"""
     now = time.time()
     cwd = paths.WORKSPACE if not paths.config().get("agent_cwd") else paths.bot_cwd()
-    if not force and _SESS_CACHE["cwd"] == cwd and now - _SESS_CACHE["at"] < 600:
-        return list(_SESS_CACHE["dirs"])
+    if not force and _SESS_CACHE["cwd"] == cwd and now - _SESS_CACHE["at"] < 120:
+        extra = [d for d in paths.session_dirs() if d not in _SESS_CACHE["dirs"]]
+        return list(_SESS_CACHE["dirs"]) + extra
     cached = paths.load_json(_SESS_CACHE_FILE, {}) or {}
     if (not force and cached.get("cwd") == cwd
             and now - cached.get("at", 0) < 600 and cached.get("dirs")):
         dirs = [d for d in cached["dirs"] if os.path.isdir(d)]
+        for d in paths.session_dirs():      # 新会话一出现就能看到，不必等缓存过期
+            if d not in dirs:
+                dirs.append(d)
         if dirs:
             _SESS_CACHE.update({"at": now, "cwd": cwd, "dirs": dirs})
             return list(dirs)

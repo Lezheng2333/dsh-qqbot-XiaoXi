@@ -7,7 +7,9 @@
   python3 memory.py list --user 爸爸           # 看别人的（跨区只读）
 """
 import json
+import os
 import sys
+import time
 
 import paths
 import people
@@ -28,7 +30,27 @@ def load(uid=None):
 
 
 def save(d, uid=None):
-    paths.save_json(path_of(uid), d)
+    """写之前把上一版留一份 memory.prev.json —— 被整份覆盖也能捞回来。"""
+    src = path_of(uid)
+    try:
+        if os.path.exists(src):
+            import shutil
+            shutil.copy2(src, people.path(uid or people.current(), "memory.prev.json"))
+    except Exception:  # noqa: BLE001
+        pass
+    paths.save_json(src, d)
+
+
+def _log(uid, action, fact):
+    """记一笔流水，万一将来记忆被误改写也知道原来是什么。"""
+    uid = uid or people.current()
+    path = people.path(uid, "memory_history.jsonl")
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": int(time.time()), "action": action,
+                                "fact": fact}, ensure_ascii=False) + "\n")
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def add(fact, uid=None, limit=40):
@@ -43,6 +65,7 @@ def add(fact, uid=None, limit=40):
     d["facts"].append(fact)
     d["facts"] = d["facts"][-limit:]
     save(d, uid)
+    _log(uid, "add", fact)
     return fact
 
 
@@ -51,6 +74,7 @@ def remove(i, uid=None):
     if 0 <= i < len(d["facts"]):
         gone = d["facts"].pop(i)
         save(d, uid)
+        _log(uid, "remove", gone)
         return gone
     return None
 

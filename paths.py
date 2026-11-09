@@ -83,6 +83,7 @@ def _spool(target, payload):
 def drain_outbox(verbose=False):
     """守护进程调用：把信箱里的东西真正写进 core。"""
     done = failed = 0
+    skipped = False
     for box in outbox_dirs():
         if not os.path.isdir(box):
             continue
@@ -94,6 +95,14 @@ def drain_outbox(verbose=False):
             if not isinstance(item, dict) or "target" not in item:
                 continue
             target = item["target"]
+            # 目标在暂存之后又被写过（更新的内容），别拿旧快照盖掉
+            try:
+                if os.path.exists(target) and os.path.getmtime(target) > (item.get("at") or 0) + 1:
+                    os.remove(path)
+                    skipped = True
+                    continue
+            except OSError:
+                pass
             try:
                 if "json" in item:
                     _write_json(target, item["json"])
@@ -231,15 +240,31 @@ def session_dirs():
     return out
 
 
+SESSION_MAP = os.path.join(STATE_DIR, "session_uids.json")
+
+
 def session_uid_map():
-    """sessionId -> openid。QQ 插件把绑定关系写在 model-prefs.json 里。"""
+    """sessionId -> openid。
+
+    QQ 插件的 model-prefs.json 只记"当前"那一对绑定，/new 之后旧会话的
+    绑定就没[masked] — 所以这里把见过的映射攒进 state/session_uids.json，
+    历史消息才一直有归属。
+    """
+    saved = load_json(SESSION_MAP, {}) or {}
+    live = {}
     d = load_json(MODEL_PREFS, {}) or {}
-    out = {}
     for key, sid in (d.get("sessionIds") or {}).items():
         parts = str(key).split(":")
         if len(parts) >= 4 and parts[0] == "qqbot":
-            out[str(sid)] = parts[-1]
-    return out
+            live[str(sid)] = parts[-1]
+    merged = dict(saved)
+    merged.update(live)
+    if merged != saved:
+        try:
+            save_json(SESSION_MAP, merged)
+        except Exception:  # noqa: BLE001
+            pass
+    return merged
 
 
 def dsh_available():
