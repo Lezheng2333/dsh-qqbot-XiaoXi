@@ -90,7 +90,13 @@ python3 people.py name 老王 老王      # 改名 + 称呼
 
 ## 搬家 / 移植（换电脑）
 
-1. 把整个 `QQ bot XiaoXi core` 拷过去（可以不带 `media/`、`state/tts/`，是缓存）。
+0. 也可以直接从仓库克隆（仓库里只有代码和人设，**没有** memory/users/media/日志）：
+
+   ```bash
+   git clone https://github.com/Lezheng2333/dsh-qqbot-XiaoXi.git "dsh-qqbot XiaoXi"
+   ```
+
+1. 或者把整个文件夹拷过去（可以不带 `media/`、`state/tts/`，是缓存）。
 2. 新电脑上装好 DSH 和 QQ 插件（`@tencent-connect/dsh-qqbot`），填好 appId/appSecret。
 3. 跑 `python3 bootstrap.py --check` 看缺什么，再跑 `python3 bootstrap.py`。
 4. 它会：登记主人（从 `model-prefs.json` 自动发现 openid，或 `--owner <openid>`）、
@@ -137,6 +143,26 @@ touch PAUSE                         # 暂停主动消息（全局）；rm PAUSE 
 - **知道外面的世界**：成都天气（温差/降雨）、24 节气（天文算法）、农历节日、周末。
 - **主动性会自适应**：连着不回就降频，聊得热络就升温；陌生人默认不主动。
 - **可靠性**：心跳、日志轮转、断网排队、token 缓存、发送重试、异常打堆栈。
+
+## 仓库里有什么、没什么
+
+公开仓库 `Lezheng2333/dsh-qqbot-XiaoXi` 只装"骨架和人设"：
+
+| 进仓库 | 说明 |
+|---|---|
+| 全部 .py | 代码本身就是她的能力 |
+| `persona/` | 人设真身（`{CORE}` 占位符，不含本机路径） |
+| `library/composed/` | 她自己画的情绪卡（自制，安全） |
+| `README.md` `config.json` | 说明与参数（无 openid、无密钥、无绝对路径） |
+
+| 不进仓库（`.gitignore`） | 为什么 |
+|---|---|
+| `users/` | 每个人的 openid、她记得的事、心情、聊天偏好 —— **这是隐私** |
+| `media/` | QQ 收到的图/歌，可能是私人照片文件 |
+| `logs/` `state/` `workspace/` `backup/` | 运行时/缓存/生成物，且带本机绝对路径 |
+| `library/` 里抓来的图 | 网上抓的表情，版权和内容都不可控 |
+
+密钥（appId/appSecret）从来只在 DSH profile 里，连本地 core 都没有。
 
 ## 已知边界
 
