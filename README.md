@@ -41,6 +41,8 @@ QQ bot XiaoXi core/
 ├── logs/               daemon.log（自动轮转）、语音样本
 ├── state/              全局运行时：心跳、天气缓存、图库标签、去重记录
 ├── config.json         运行参数（不含密钥）
+├── topic.py            话题追踪（现在在聊什么，跨消息保持）
+├── journal.py          日记（每天一页，跨天记忆）
 ├── memory.py notes.py mood.py engagement.py people.py recall.py
 ├── messages.py stickers.py compose.py tts.py world.py transcripts.py store.py
 └── selftest.py         全链路自测（假发送，不碰真实数据）
@@ -90,6 +92,21 @@ python3 people.py name 老王 老王      # 改名 + 称呼
 
 换过工作目录后，在 QQ 里发一句 `/new`（或 `/reset` / `/clear`）让会话用新目录；
 历史记录不会被删，只是开一条新会话。
+
+## 三层记忆
+
+| 层 | 存在哪 | 谁写 | 解决什么 |
+|---|---|---|---|
+| 会话内 | DSH 会话记录 | DSH | 同一次对话里的上下文 |
+| 话题 | `users/<uid>/topic.json` | 守护进程每分钟 | 一段时间只聊一件事，不一句一换 |
+| 日记 | `users/<uid>/journal/YYYY-MM-DD.json` | 守护进程每天 | 跨天："昨天你们聊了……" |
+| 事实 | `users/<uid>/memory.json` | 她自己（memory.py） | 长期的人设级记忆 |
+
+外加 `users/<uid>/notes.json`：她**主动**发出去的话（含表情包路径）——
+这些不进她的会话，只能靠 `recall.py` 看见，所以人设里写了"开口前先跑 recall"。
+
+`recall.py --search 关键词` 能在"她说过的 + 他说过的"里全文搜，
+对方提到一件她想不起来的事时用，搜不到就老实说没有（别猜）。
 
 ## 她的记忆闭环
 

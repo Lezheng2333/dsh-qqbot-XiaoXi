@@ -28,6 +28,7 @@ sys.path.insert(0, ROOT)
 
 import compose  # noqa: E402
 import engagement  # noqa: E402
+import journal  # noqa: E402
 import memory  # noqa: E402
 import messages  # noqa: E402
 import mood  # noqa: E402
@@ -38,6 +39,7 @@ import push  # noqa: E402
 import stickers  # noqa: E402
 import store  # noqa: E402
 import transcripts  # noqa: E402
+import topic  # noqa: E402
 import tts  # noqa: E402
 import world  # noqa: E402
 
@@ -140,7 +142,8 @@ def build_plan(uid, c=None, w=None, now=None, force_sticker=False, rng=None):
 
     msg = messages.compose(now=now, facts=memory.facts(uid, 6), quotes=memory.quotes(uid, 6)
                            + transcripts.recent_personal_items(uid, n=6),
-                           mood=m, world=w, avoid=used_lines(c), rng=rng)
+                           mood=m, world=w, avoid=used_lines(c), rng=rng,
+                           topic=topic.hint(uid))
 
     plan = {"uid": uid, "texts": msg["texts"], "kinds": msg["kinds"],
             "sources": msg["sources"], "emotion": msg["emotion"],
@@ -231,7 +234,8 @@ def _finish_round(plan, c):
                            plan["sticker"]["emotion"] if plan.get("sticker") else None,
                            plan["mood"], plan["texts"])
     notes.append(uid, plan["texts"], emotion=(plan.get("sticker") or {}).get("emotion"),
-                 mood=plan["mood"], kinds=plan.get("kinds"), ts=plan["at"])
+                 mood=plan["mood"], kinds=plan.get("kinds"), ts=plan["at"],
+                 sticker=(plan.get("sticker") or {}).get("path"))
     who = (people.get(uid) or {}).get("name") or uid[:6]
     sticker = plan.get("sticker") or {}
     rate = plan["metrics"]
@@ -547,6 +551,14 @@ def loop():
 
             if queue_flush(c):
                 store.heartbeat(queue_flushed=time.time())
+
+            # 话题 + 日记：所有聊过的人都更新（不只是会主动冒泡的）
+            for uid in people.profiles():
+                try:
+                    topic.update(uid)
+                    journal.ensure(uid, mood.load(uid))
+                except Exception as e:  # noqa: BLE001
+                    log(f"[{uid[:6]}…] 话题/日记更新失败: {type(e).__name__}: {e}")
 
             brief = {}
             for uid in todos:

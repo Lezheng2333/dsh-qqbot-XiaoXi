@@ -246,6 +246,24 @@ def user_messages(uid=None, ttl=_CACHE_TTL):
     return out
 
 
+def assistant_messages(uid=None, ttl=_CACHE_TTL):
+    """她说的话（她的会话回复，不含守护进程主动发的）。"""
+    out = []
+    for ev in events(uid=uid, ttl=ttl):
+        if ev.get("type") != "assistant/message":
+            continue
+        msg = (ev.get("data") or {}).get("message") or {}
+        text = "".join(c.get("text", "") for c in (msg.get("content") or [])
+                       if c.get("type") == "text").strip()
+        if not text:
+            continue
+        ts = (ev.get("time") or 0) / 1000.0
+        if ts <= 0:
+            continue
+        out.append({"ts": ts, "text": text, "uid": ev.get("_uid")})
+    return out
+
+
 def last_user_ts(uid=None, ttl=_CACHE_TTL):
     msgs = user_messages(uid=uid, ttl=ttl)
     return msgs[-1]["ts"] if msgs else 0.0

@@ -5,6 +5,7 @@
   python3 recall.py --who 爸爸    # 跨区只读：我印象里的这个人
   python3 recall.py --mood 开心   # 给自己拨心情（后台下一轮生效）
   python3 recall.py --read       # 看完标记已读
+  python3 recall.py --search 捡   # 搜自己的记录（他提到的东西我想不起来时用）
   python3 recall.py --whoami     # 只问"我在跟谁说话"
 """
 import sys
@@ -19,6 +20,13 @@ def main():
     if "--whoami" in args:
         import json
         print(json.dumps(people.whoami(), ensure_ascii=False, indent=1))
+        return
+
+    if "--search" in args:
+        i = args.index("--search")
+        kw = args[i + 1] if i + 1 < len(args) else ""
+        uid = people.current()
+        print("\n".join(notes.search(uid, kw)))
         return
 
     if "--who" in args:

@@ -358,6 +358,20 @@ WORLD_TPL = {
     ],
 }
 
+# ── 顺着正在聊的话题说（主动冒泡时用，别每次都报时/报天气） ──
+TOPIC_FOLLOWUP = {
+    "工作": ["还在忙工作吗", "今天上班累不累呀", "单位那边还顺利吗"],
+    "做游戏": ["游戏做到哪儿啦", "那个游戏有新进展吗", "还在改代码吗"],
+    "吃饭": ["今天吃到什么好吃的了", "晚饭想好吃啥没呀"],
+    "睡觉": ["昨晚睡得好吗", "今天有好好睡觉吗"],
+    "家人": ["家里人最近都好吗"],
+    "身体": ["腰好点没呀", "今天身体舒服点了吗"],
+    "感情": ["那件事，后来怎么想的呀"],
+    "音乐电影": ["最近有听到好听的歌吗", "最近看什么电影了"],
+    "车": ["车开着还顺手吗"],
+    "心情": ["今天心情好点没"],
+}
+
 # ── 记得的事 / 刚聊过的内容 ──
 FACT_TPL = [
     "爸爸上次说「{x}」，现在怎么样啦",
@@ -566,7 +580,7 @@ def emotion_for(mood, kinds=None, texts=None, rng=random):
 
 
 def compose(hour=None, facts=None, quotes=None, mood=None, world=None,
-            avoid=None, rng=None, now=None):
+            avoid=None, rng=None, now=None, topic=None):
     """生成一轮话术。
 
     返回 {"texts": [...], "kinds": [...], "sources": [...], "emotion": "..."}
@@ -591,9 +605,19 @@ def compose(hour=None, facts=None, quotes=None, mood=None, world=None,
 
     parts, kinds, sources = [], [], []
 
+    # 0) 顺着正在聊的话题（比随机报时更像在跟人聊天）
+    followup = [x for x in (TOPIC_FOLLOWUP.get(topic) or []) if _norm(x) not in avoid]
+    if followup and rng.random() < 0.42:
+        line = rng.choice(followup)
+        parts.append(line)
+        kinds.append(f"topic:{topic}")
+        sources.append(line)
+
     # 1) 外面的世界（真实关心）：先占一句的机会
     wl, strong_world = world_lines(world, mood, now=now, rng=rng)
     wl = [x for x in wl if _norm(x) not in avoid]   # 环境句说过了就别再说
+    if parts:                                       # 已经顺着话题说了，就别再塞天气
+        wl = []
     if not wl:
         world_prob = 0.0
     elif strong_world:
@@ -621,17 +645,21 @@ def compose(hour=None, facts=None, quotes=None, mood=None, world=None,
             kinds.append("fact")
             sources.append(line)
 
-    # 3) 主句：按时段 / 心情挑
-    kind = _pick_weighted(weights, rng)
-    if mood_key and kind == "mood" and MOOD_LINES.get(mood_key):
-        line = _pick(MOOD_LINES[mood_key], avoid, rng)
-        kind = f"mood:{mood_key}"
+    # 3) 主句：按时段 / 心情挑（已经顺着话题说了，就 70% 不再塞一条无关的）
+    if any(str(k).startswith("topic:") for k in kinds) and rng.random() < 0.7:
+        kind = None
     else:
-        line = _pick(_pool(kind, slot, rng), avoid, rng)
-    if _norm(line) not in {_norm(p) for p in parts}:
-        parts.append(line)
-        kinds.append(kind)
-        sources.append(line)
+        kind = _pick_weighted(weights, rng)
+    if kind:
+        if mood_key and kind == "mood" and MOOD_LINES.get(mood_key):
+            line = _pick(MOOD_LINES[mood_key], avoid, rng)
+            kind = f"mood:{mood_key}"
+        else:
+            line = _pick(_pool(kind, slot, rng), avoid, rng)
+        if _norm(line) not in {_norm(p) for p in parts}:
+            parts.append(line)
+            kinds.append(kind)
+            sources.append(line)
 
     # 4) 补一句短的（不要连着两句提问）
     if len(parts) < 2 and rng.random() < 0.42:
