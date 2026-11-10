@@ -28,6 +28,7 @@ sys.path.insert(0, ROOT)
 
 import compose  # noqa: E402
 import engagement  # noqa: E402
+import facts  # noqa: E402
 import journal  # noqa: E402
 import memory  # noqa: E402
 import messages  # noqa: E402
@@ -36,6 +37,7 @@ import notes  # noqa: E402
 import paths  # noqa: E402
 import people  # noqa: E402
 import push  # noqa: E402
+import siblings  # noqa: E402
 import stickers  # noqa: E402
 import store  # noqa: E402
 import transcripts  # noqa: E402
@@ -391,6 +393,11 @@ def tick_user(uid, c, w, now=None):
         log("检测到长时间休眠，本次排程顺延")
         return {"state": "wait", **brief}
 
+    if siblings.quiet(c.get("sibling_quiet_min", 15)):
+        st["next_at"] = time.time() + 20 * 60
+        save(user_state_path(uid), st)
+        return {"state": "wait", **brief}
+
     last_user = transcripts.last_user_ts(uid)
     if last_user and (time.time() - last_user) < c["quiet_after_user_min"] * 60:
         st["next_at"] = time.time() + 1800
@@ -557,6 +564,9 @@ def loop():
                 try:
                     topic.update(uid)
                     journal.ensure(uid, mood.load(uid))
+                    got = facts.scan_new(uid, write=True)
+                    for f in got.get("added") or []:
+                        log(f"自动记下（{(people.get(uid) or {}).get('name')}）: {f}")
                 except Exception as e:  # noqa: BLE001
                     log(f"[{uid[:6]}…] 话题/日记更新失败: {type(e).__name__}: {e}")
 

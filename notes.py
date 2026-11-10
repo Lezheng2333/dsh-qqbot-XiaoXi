@@ -243,6 +243,15 @@ def render(uid, n=3, now=None, with_world=True):
         lines.extend(mem)
         lines.append("他要是回你上一条，就接着那条往下说；记不清就看上面，别否认，也别把记录念出来。")
 
+    # ②.5 同一个聊天里的另一个小家伙（她不知道这些话是谁说的会闹误会）
+    try:
+        import siblings
+        sib = siblings.render_lines(hours=12)
+        if sib:
+            lines.extend(sib)
+    except Exception:  # noqa: BLE001
+        pass
+
     # ③ 这几天（跨天记忆）
     try:
         jl = journal_mod.lines(uid, 2, dtnow.date())

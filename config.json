@@ -31,5 +31,13 @@
  "lat": 30.5728,
  "lon": 104.0668,
  "weather": true,
- "agent_cwd": "."
+ "agent_cwd": ".",
+ "siblings": [
+  {
+   "name": "大肥鱼",
+   "self": "鱼鱼",
+   "log": "~/.dsh/fish/poke.log"
+  }
+ ],
+ "sibling_quiet_min": 15
 }
