@@ -36,7 +36,8 @@
   {
    "name": "大肥鱼",
    "self": "鱼鱼",
-   "log": "~/.dsh/fish/poke.log"
+   "log": "~/.dsh/fish/poke.log",
+   "note": "2026-11-10 15:45 起停用，只保留历史记录（12 小时后自动不再显示）"
   }
  ],
  "sibling_quiet_min": 15
