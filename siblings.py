@@ -28,8 +28,10 @@ DEFAULTS = [{
 
 
 def list_siblings():
-    conf = (paths.config() or {}).get("siblings")
-    return conf if isinstance(conf, list) and conf else DEFAULTS
+    conf = paths.config() or {}
+    if isinstance(conf.get("siblings"), list):
+        return conf["siblings"]          # 空列表 = 明确关掉，不要回落默认
+    return DEFAULTS
 
 
 def recent(hours=12, n=3):

@@ -32,13 +32,6 @@
  "lon": 104.0668,
  "weather": true,
  "agent_cwd": ".",
- "siblings": [
-  {
-   "name": "大肥鱼",
-   "self": "鱼鱼",
-   "log": "~/.dsh/fish/poke.log",
-   "note": "2026-11-10 15:45 起停用，只保留历史记录（12 小时后自动不再显示）"
-  }
- ],
+ "siblings": [],
  "sibling_quiet_min": 15
 }
