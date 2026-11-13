@@ -26,7 +26,6 @@ import traceback
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
-import compose  # noqa: E402
 import engagement  # noqa: E402
 import facts  # noqa: E402
 import journal  # noqa: E402
@@ -58,7 +57,7 @@ DEFAULTS = {
     "sticker_prob": 0.5, "split_prob": 0.3, "typing": True, "voice_prob": 0.08,
     "voice_name": "Flo (中文（中国大陆）)",
     "quiet_after_user_min": 20,
-    "composed_prob": 0.05, "composed_daily_max": 1,
+    "composed_prob": 0.0, "composed_daily_max": 0,
     "dedup_days": 7, "same_day_cooldown_min": 6, "sticker_cooldown_min": 300,
     "quota_floor": 3, "quota_cap": 14, "gap_floor": 20, "gap_cap": 240,
     "familiar_after_messages": 15,
@@ -167,17 +166,13 @@ def build_plan(uid, c=None, w=None, now=None, force_sticker=False, rng=None):
 
 
 def _attach_sticker(plan, c, rng=None):
-    rng = rng or random
-    emo = plan["emotion"]
-    path, source = stickers.pick(emo, prefer_local_min_age=c["sticker_cooldown_min"])
-    if not path:
-        path, source = compose.fresh(emo), "composed"
-    if source != "composed" and rng.random() < c.get("composed_prob", 0.05):
-        day = load(os.path.join(paths.STATE_DIR, "composed_day.json"), {}) or {}
-        used_today = day.get("n", 0) if day.get("day") == dt.date.today().isoformat() else 0
-        if used_today < c.get("composed_daily_max", 1):
-            path, source = compose.fresh(emo), "composed"
-    plan["sticker"] = {"emotion": emo, "path": path, "source": source}
+    """只发鲸鱼娘系可爱图（池子在 library/whale，审过才进）。挑不到就不发。"""
+    chosen = stickers.pick(plan["emotion"])
+    if not chosen:
+        plan["sticker"] = None
+        log("表情池里没有合适的图，这一轮不发图")
+        return plan
+    plan["sticker"] = {"emotion": chosen["emo"], "path": chosen["path"], "source": "whale"}
     return plan
 
 
@@ -505,7 +500,7 @@ def doctor():
     check("edge-tts", lambda: "可用" if __import__("edge_tts") else "缺")
     check("天气", lambda: (world.weather() or {}).get("desc") or "拿不到")
     check("节气算法", lambda: world.solar_term_time(2026, "冬至").strftime("%m-%d %H:%M"))
-    check("图库", lambda: f"{len(stickers.library_files())} 张")
+    check("表情池", lambda: f"{len(stickers.pool())} 张鲸鱼娘")
     check("会话目录", lambda: f"{len(transcripts.session_dirs())} 个")
     check("当前会话", lambda: (transcripts.current_session() or {}).get("uid") or "认不出")
     check("用户分区", lambda: f"{len(people.profiles())} 个")

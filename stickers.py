@@ -1,376 +1,317 @@
 #!/usr/bin/env python3
-"""小汐的表情包 — 实时抓图 + 本地情绪标签库 + 质量过滤。
+"""小汐的表情包 — 只发"鲸鱼娘"系可爱图，别的材料一张都不发。
 
-来源：斗图啦（主）、发表情（备）。只用一个受控的中文关键词表，
-不用用户输入当搜索词，避免搜出奇怪的东西。
+规则（爸爸定的）：
+· 只许发鲸鱼 / 鲸鱼娘 / 小鲸鱼这类可爱图；
+· 网上现抓的"暴走漫画/沙雕表情"一律不要——那些看着像猥琐大汉；
+· 新图先落到 candidate/，人工（或 AI）看过、确认可爱，才 promote 进 whale/。
 
-每张图抓到就打上情绪标签（state/sticker_tags.json），下次同情绪优先
-用本地已经验过的好图，抓不到才不会瞎配。
+所以这个模块分两侧：
+  发送侧 pick()  只从 library/whale/ 里挑（index.json 带情绪标签）
+  采集侧 fetch()  用"鲸鱼娘"关键词搜图，只落 candidate/，绝不自动发
 
-  python3 stickers.py fetch 撒娇     # 抓一张，打印路径
-  python3 stickers.py batch 5        # 抓 5 张存库
-  python3 stickers.py pick 撒娇      # 按情绪挑一张（本地优先）
-  python3 stickers.py curate         # 体检 + 去重 + 生成 REVIEW.md
+  python3 stickers.py pick 撒娇          # 挑一张（发给 QQ 用）
+  python3 stickers.py stats             # 图库统计
+  python3 stickers.py sheet             # 生成审图拼图 library/whale_sheet.png
+  python3 stickers.py add <图> <情绪>    # 把审过的图正式加进池子
+  python3 stickers.py fetch 5           # 抓 5 张候选（只进 candidate/）
+  python3 stickers.py search 鲸鱼娘      # 只打印搜到的图片链接
 """
 import hashlib
+import io
 import json
 import os
 import random
 import re
+import shutil
 import sys
 import time
 import urllib.parse
 import urllib.request
 
+from PIL import Image
+
 import paths
 import store
 
-ROOT = store.ROOT
-LIB = os.path.join(ROOT, "library")
-COMPOSED = os.path.join(LIB, "composed")
-TAGS = store.state_path("sticker_tags.json")
+LIB = paths.LIB
+WHALE = os.path.join(LIB, "whale")
+CAND = os.path.join(LIB, "candidate")
+TRASH = os.path.join(LIB, "trash")
+INDEX = os.path.join(WHALE, "index.json")
+USED = os.path.join(paths.STATE_DIR, "whale_used.json")
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/120.0 Safari/537.36")
+      "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 
-# 情绪 -> 搜索词（鲸鱼娘 / 鲸鱼 / 情绪类）。只做加法，不动别人在用的名字。
-EMOTIONS = {
-    "鲸鱼": ["鲸鱼", "鲸鱼娘", "小鲸鱼", "鲸"],
-    "开心": ["开心", "高兴", "开心鲸鱼", "快乐"],
-    "撒娇": ["撒娇", "贴贴", "要抱抱", "么么哒"],
-    "委屈": ["委屈", "可怜", "qwq", "欺负"],
-    "生气": ["生气", "哼", "气鼓鼓", "凶"],
-    "困": ["困", "睡觉", "晚安", "困困"],
-    "吃醋": ["吃醋", "嫉妒", "生气吃醋"],
-    "哭": ["哭", "大哭", "眼泪"],
-    "夸": ["夸我", "棒", "厉害", "点赞"],
-    "疑惑": ["问号", "疑惑", "歪头", "什么"],
+# 只用这些词搜（都是"鲸鱼娘/小鲸鱼"范畴），不许再带回暴走漫画
+QUERIES = [
+    "鲸鱼娘", "鲸鱼娘 表情包", "鲸鱼娘 可爱", "鲸鱼娘 插画",
+    "小鲸鱼 表情包 可爱", "鲸鱼 表情包 可爱", "鲸鱼 拟人 少女",
+    "くじら娘 イラスト", "whale girl cute sticker",
+]
+
+EMOTIONS = ["鲸鱼", "开心", "撒娇", "委屈", "小别扭", "困", "夸", "疑惑", "哭", "吃醋"]
+
+# 情绪 -> 池子里优先挑的标签（挑不到就随便从池子里挑一张，反正都是鲸鱼）
+PREF = {
+    "鲸鱼": ["鲸鱼", "开心"], "开心": ["开心", "夸", "鲸鱼"], "撒娇": ["撒娇", "鲸鱼"],
+    "委屈": ["委屈", "撒娇"], "小别扭": ["小别扭", "委屈"], "困": ["困", "鲸鱼"],
+    "夸": ["夸", "开心"], "疑惑": ["疑惑", "鲸鱼"], "哭": ["委屈", "撒娇"],
+    "吃醋": ["小别扭", "委屈"], "生气": ["小别扭", "委屈"],
 }
-ALL_KEYWORDS = [k for v in EMOTIONS.values() for k in v]
-# 每种情绪的"拒收词"：搜出来带这些词义的图，情绪不对就别用
-NEGATIVE_WORDS = ("恐怖", "吓人", "恶心", "血", "死", "杀", "色情", "裸")
 
 
-def _get(url, referer=None, timeout=20):
-    headers = {"User-Agent": UA}
-    if referer:
-        headers["Referer"] = referer
-    req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read()
+# ────────────────────────── 图库 ──────────────────────────
 
-
-def search_doutula(keyword):
-    url = "https://www.doutula.com/search?keyword=" + urllib.parse.quote(keyword)
-    try:
-        html = _get(url).decode("utf-8", "ignore")
-    except Exception:  # noqa: BLE001
-        return []
-    urls = re.findall(r'data-original="(https?://[^"]+\.(?:gif|png|jpe?g|webp))"', html, re.I)
-    urls += re.findall(r'data-backup="(https?://[^"]+\.(?:gif|png|jpe?g|webp))"', html, re.I)
-    return list(dict.fromkeys(urls))
-
-
-def search_fabiaoqing(keyword):
-    url = f"https://www.fabiaoqing.com/search/bqb/keyword/{urllib.parse.quote(keyword)}/type/bqb.html"
-    try:
-        html = _get(url).decode("utf-8", "ignore")
-    except Exception:  # noqa: BLE001
-        return []
-    urls = re.findall(r'<img[^>]+data-original="(//[^"]+\.(?:gif|png|jpe?g))"', html, re.I)
-    return ["https:" + u if u.startswith("//") else u for u in dict.fromkeys(urls)]
-
-
-# ────────────────────────── 标签库 ──────────────────────────
-
-def load_tags():
-    d = store.load_json(TAGS, None)
+def _index():
+    d = paths.load_json(INDEX, None)
     if not isinstance(d, dict):
         d = {}
-    d.setdefault("items", {})
-    d.setdefault("sent", {})
     return d
 
 
-def save_tags(d):
-    store.save_json(TAGS, d)
+def _save_index(d):
+    paths.ensure_dirs()
+    paths.save_json(INDEX, d)
 
 
-def tag(path, emo, kw=None):
-    d = load_tags()
-    d["items"][path] = {"emo": emo, "kw": kw, "ts": time.time(),
-                        "hash": _file_hash(path)}
-    save_tags(d)
-
-
-def mark_sent(path):
-    d = load_tags()
-    d["sent"][path] = time.time()
-    # 只留最近 300 条
-    if len(d["sent"]) > 300:
-        keep = sorted(d["sent"].items(), key=lambda kv: kv[1])[-300:]
-        d["sent"] = dict(keep)
-    save_tags(d)
-
-
-def _file_hash(path):
-    try:
-        h = hashlib.sha1()
-        with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(65536), b""):
-                h.update(chunk)
-        return h.hexdigest()[:16]
-    except OSError:
-        return None
-
-
-def tagged(emo=None, max_age_days=60):
-    d = load_tags()
-    now = time.time()
+def pool(emo=None):
+    """池子里能发的图：[{path, emo}]。"""
+    idx = _index()
     out = []
-    for path, meta in d["items"].items():
+    for name, meta in idx.items():
+        path = os.path.join(WHALE, name)
         if not os.path.exists(path):
             continue
         if emo and meta.get("emo") != emo:
             continue
-        if max_age_days and now - meta.get("ts", 0) > max_age_days * 86400:
-            continue
-        out.append((path, meta))
+        out.append({"path": path, "emo": meta.get("emo"), "name": name})
     return out
 
 
-def pick_local(emo, minutes_avoid=0):
-    """按情绪挑一张本地图：优先没用过的、没发过的。"""
-    d = load_tags()
-    sent = d.get("sent", {})
-    cands = []
-    for path, meta in tagged(emo):
-        last = sent.get(path, 0)
-        if minutes_avoid and (time.time() - last) < minutes_avoid * 60:
+def _used():
+    d = paths.load_json(USED, {}) or {}
+    return d if isinstance(d, dict) else {}
+
+
+def _mark_used(path):
+    d = _used()
+    d[os.path.basename(path)] = time.time()
+    if len(d) > 200:
+        d = dict(sorted(d.items(), key=lambda kv: kv[1])[-200:])
+    paths.save_json(USED, d)
+
+
+def mark_sent(path):
+    if path:
+        _mark_used(path)
+
+
+def pick(emotion=None, min_gap_min=240):
+    """按情绪挑一张鲸鱼娘图；挑不到合适的就退而求其次，池子空就返回 None。"""
+    emos = PREF.get(emotion) or ([emotion] if emotion else [])
+    used = _used()
+    now = time.time()
+    for emo in emos + [None]:
+        cands = pool(emo) if emo else pool()
+        if not cands:
             continue
-        cands.append((last, path))
-    if not cands:
-        return None
-    cands.sort()
-    # 最久没发过的那批里随机挑一张，别总是同一张
-    oldest = cands[:max(1, len(cands) // 2)]
-    return random.choice(oldest)[1]
+        fresh = [c for c in cands
+                 if (now - used.get(c["name"], 0)) > min_gap_min * 60]
+        chosen = random.choice(fresh or cands)
+        _mark_used(chosen["path"])
+        return chosen
+    return None
 
 
-# ────────────────────────── 质量过滤 ──────────────────────────
+def add(src, emo, convert=True):
+    """把一张审过的图正式加进池子（webp 自动转 png）。"""
+    if not os.path.exists(src):
+        raise SystemExit(f"找不到图：{src}")
+    raw = open(src, "rb").read()
+    ext = os.path.splitext(src)[1].lower()
+    if convert and (ext in (".webp", ".jpeg") or ext not in (".png", ".jpg", ".gif")):
+        im = Image.open(io.BytesIO(raw)); im.load()
+        buf = io.BytesIO(); im.convert("RGBA").save(buf, "PNG")
+        raw, ext = buf.getvalue(), ".png"
+    h = hashlib.sha1(raw).hexdigest()[:12]
+    name = f"{emo}_{h}{ext}"
+    os.makedirs(WHALE, exist_ok=True)
+    paths.save_file(os.path.join(WHALE, name), raw)
+    idx = _index()
+    idx[name] = {"emo": emo, "added": time.time(), "src": os.path.basename(src)}
+    _save_index(idx)
+    return os.path.join(WHALE, name)
 
-def _valid(path):
-    """尺寸/比例/体积/内容过滤，坏图直接丢。"""
+
+# ────────────────────────── 采集（只进候选） ──────────────────────────
+
+def _get(url, referer=None, timeout=10):
+    h = {"User-Agent": UA}
+    if referer:
+        h["Referer"] = referer
+    with urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=timeout) as r:
+        return r.read()
+
+
+def search_urls(query, count=40):
+    """Bing 图片搜索，返回图片直链。"""
+    u = ("https://www.bing.com/images/async?q=" + urllib.parse.quote(query)
+         + f"&first=0&count={count}&mmasync=1")
+    html = _get(u, referer="https://www.bing.com/images/search?q=" + urllib.parse.quote(query)
+                ).decode("utf-8", "ignore")
+    urls = re.findall(r'murl&quot;:&quot;(.*?)&quot;', html) or re.findall(r'"murl":"(.*?)"', html)
+    return [x.replace("&amp;", "&") for x in urls]
+
+
+def _looks_bad(path):
+    """粗筛：太小/太扁/纯色/带大段文字的截图。"""
     try:
-        from PIL import Image, ImageStat
         size = os.path.getsize(path)
         if size < 8_000 or size > 6_000_000:
-            return False
+            return True
         im = Image.open(path)
         im.load()
         w, h = im.size
-        if w < 120 or h < 120:
-            return False
-        ratio = max(w, h) / max(1, min(w, h))
-        if ratio > 2.6:
-            return False
-        # 几乎纯色的图（白底截图/空白）没意思
-        gray = im.convert("L").resize((64, 64))
-        stat = ImageStat.Stat(gray)
-        if stat.stddev[0] < 6:
-            return False
-        return True
-    except Exception:  # noqa: BLE001
+        if w < 140 or h < 140:
+            return True
+        if max(w, h) / max(1, min(w, h)) > 2.2:
+            return True
+        from PIL import ImageStat
+        stat = ImageStat.Stat(im.convert("L").resize((48, 48)))
+        if stat.stddev[0] < 8:          # 纯色/近乎纯色
+            return True
         return False
+    except Exception:  # noqa: BLE001
+        return True
 
 
-def _save(data, url, emo=None):
-    ext = os.path.splitext(urllib.parse.urlparse(url).path)[1].lower() or ".png"
-    if ext == ".jpeg":
-        ext = ".jpg"
-    h = hashlib.sha1(data).hexdigest()[:16]
-    sub = os.path.join(LIB, h[:2])
-    os.makedirs(sub, exist_ok=True)
-    path = os.path.join(sub, h + ext)
-    paths.save_file(path, data)             # 沙箱不让写就进信箱，后台代写
-    # QQ 对 webp 不友好，转成 png 再入库
-    if ext == ".webp":
+def fetch(n=10, queries=None):
+    """抓候选图（不会自动发送，等审）。"""
+    os.makedirs(CAND, exist_ok=True)
+    seen = {f.split(".")[0] for f in os.listdir(CAND)}
+    got = []
+    qs = list(queries or QUERIES)
+    random.shuffle(qs)
+    for q in qs:
+        if len(got) >= n:
+            break
         try:
-            import io
-            from PIL import Image
-            png = os.path.join(sub, h + ".png")
-            buf = io.BytesIO()
-            Image.open(path).convert("RGBA").save(buf, format="PNG")
-            paths.save_file(png, buf.getvalue())
-            os.remove(path)
-            path = png
+            urls = search_urls(q)
         except Exception:  # noqa: BLE001
-            pass
-    if emo:
-        tag(path, emo, url)
-    return path
-
-
-def _recent_urls():
-    """用文件名 hash 近似"抓过哪些"，避免同图重复下载。"""
-    return {os.path.splitext(f)[0] for f in os.listdir(LIB)} if os.path.isdir(LIB) else set()
-
-
-def fetch_one(emotion=None, tries=3):
-    """抓一张可用的表情，返回 (路径, 关键词)。失败返回 (None, None)。"""
-    keywords = EMOTIONS.get(emotion, ALL_KEYWORDS) if emotion else ALL_KEYWORDS
-    keywords = random.sample(keywords, len(keywords))
-    seen = set()
-    for dp, _, fns in os.walk(LIB):
-        for f in fns:
-            seen.add(os.path.splitext(f)[0])
-    for kw in keywords[:tries]:
-        if any(bad in kw for bad in NEGATIVE_WORDS):
             continue
-        urls = search_doutula(kw)
-        if len(urls) < 3:
-            urls += search_fabiaoqing(kw)
         random.shuffle(urls)
-        for url in urls[:10]:
-            key = hashlib.sha1(url.encode()).hexdigest()[:16]
-            if key in seen:
-                continue
+        for u in urls:
+            if len(got) >= n:
+                break
             try:
-                data = _get(url, referer="https://www.doutula.com/")
+                data = _get(u, referer="https://www.bing.com/")
             except Exception:  # noqa: BLE001
                 continue
-            if len(data) < 8_000:
+            h = hashlib.sha1(data).hexdigest()[:16]
+            if h in seen:
                 continue
-            content_hash = hashlib.sha1(data).hexdigest()[:16]
-            if content_hash in seen:
-                continue
-            path = _save(data, url, emotion)
-            if not _valid(path):
+            ext = os.path.splitext(urllib.parse.urlparse(u).path)[1].lower() or ".png"
+            if ext not in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
+                ext = ".png"
+            tmp = os.path.join(CAND, h + ext)
+            paths.save_file(tmp, data)
+            if _looks_bad(tmp):
                 try:
-                    os.remove(path)
+                    os.remove(tmp)
                 except OSError:
                     pass
-                d = load_tags()
-                d["items"].pop(path, None)
-                save_tags(d)
                 continue
-            seen.add(key)
-            seen.add(content_hash)
-            return path, kw
-    return None, None
+            seen.add(h)
+            got.append({"path": tmp, "query": q})
+    return got
 
 
-def library_files():
-    out = []
-    for dp, _, fn in os.walk(LIB):
-        for f in fn:
-            if os.path.splitext(f)[1].lower() in (".png", ".gif", ".jpg", ".webp"):
-                out.append(os.path.join(dp, f))
+def sheet(cols=6, cell=200):
+    """把池子 + 候选图拼成一张审图，方便一眼看。"""
+    from PIL import ImageDraw
+    items = [(f"池·{c['emo']}", c["path"]) for c in pool()]
+    if os.path.isdir(CAND):
+        items += [("候选", os.path.join(CAND, f)) for f in sorted(os.listdir(CAND))[:60]
+                  if os.path.splitext(f)[1].lower() in (".png", ".jpg", ".jpeg", ".gif", ".webp")]
+    if not items:
+        return None
+    rows = (len(items) + cols - 1) // cols
+    canvas = Image.new("RGB", (cols * cell, rows * cell), (248, 248, 248))
+    d = ImageDraw.Draw(canvas)
+    for i, (tag, f) in enumerate(items):
+        try:
+            im = Image.open(f).convert("RGBA")
+            im.thumbnail((cell - 12, cell - 30))
+            bg = Image.new("RGB", (cell - 12, cell - 30), (255, 255, 255))
+            bg.paste(im, ((cell - 12 - im.width) // 2, (cell - 30 - im.height) // 2), im)
+            x, y = (i % cols) * cell, (i // cols) * cell
+            canvas.paste(bg, (x + 6, y + 24))
+            d.text((x + 6, y + 6), f"{i:03d} {tag}", fill=(190, 0, 0))
+        except Exception:  # noqa: BLE001
+            continue
+    out = os.path.join(paths.STATE_DIR, "whale_sheet.png")
+    canvas.save(out)
     return out
 
 
-def fetch_local_any():
-    files = library_files()
-    return random.choice(files) if files else None
-
-
-# ────────────────────────── 策展 ──────────────────────────
-
-def curate(delete_bad=True):
-    """体检图库：坏图删掉、重复的只留一张、给老图补标签。"""
-    files = library_files()
-    d = load_tags()
-    report = {"total": len(files), "removed_bad": [], "removed_dup": [],
-              "tagged": 0, "kept": 0}
-    hashes = {}
-    for path in files:
-        if not _valid(path):
-            if delete_bad:
+def curate():
+    """体检池子：坏图删掉、索引对齐、旧的沙雕图挪走。"""
+    os.makedirs(WHALE, exist_ok=True)
+    os.makedirs(TRASH, exist_ok=True)
+    report = {"dropped": [], "archived": 0, "kept": 0}
+    idx = _index()
+    for name in list(idx):
+        path = os.path.join(WHALE, name)
+        if not os.path.exists(path) or _looks_bad(path):
+            idx.pop(name, None)
+            report["dropped"].append(name)
+    _save_index(idx)
+    # 池子以外、还在 library 根下的旧图（暴走漫画那种）全部归档
+    for dp, _, fns in os.walk(LIB):
+        if dp.startswith(WHALE) or dp.startswith(CAND) or dp.startswith(TRASH):
+            continue
+        for f in fns:
+            if os.path.splitext(f)[1].lower() in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
+                src = os.path.join(dp, f)
                 try:
-                    os.remove(path)
-                except OSError:
+                    shutil.move(src, os.path.join(TRASH, f))
+                    report["archived"] += 1
+                except Exception:  # noqa: BLE001
                     pass
-                d["items"].pop(path, None)
-                report["removed_bad"].append(os.path.basename(path))
-                continue
-        h = _file_hash(path)
-        if h in hashes:
-            if delete_bad:
-                try:
-                    os.remove(path)
-                except OSError:
-                    pass
-                d["items"].pop(path, None)
-                report["removed_dup"].append(os.path.basename(path))
-                continue
-        hashes[h] = path
-        if path not in d["items"]:
-            emo = None
-            base = os.path.basename(path)
-            for name in EMOTIONS:
-                if base.startswith(name):
-                    emo = name
-                    break
-            if emo:
-                d["items"][path] = {"emo": emo, "kw": "composed", "ts": time.time(), "hash": h}
-                report["tagged"] += 1
-        report["kept"] += 1
-    save_tags(d)
-    _write_review()
+    report["kept"] = len(pool())
     return report
 
 
-def _write_review():
-    d = load_tags()
-    lines = ["# 表情包图库体检单", "", f"生成时间：{time.strftime('%Y-%m-%d %H:%M')}",
-             "", "想删掉哪张，直接把文件删了就行（路径在下面）。", ""]
+def stats():
+    idx = _index()
     by_emo = {}
-    for path, meta in d["items"].items():
-        by_emo.setdefault(meta.get("emo") or "未分类", []).append(path)
-    for emo in sorted(by_emo):
-        lines.append(f"## {emo}（{len(by_emo[emo])} 张）")
-        for p in sorted(by_emo[emo]):
-            lines.append(f"- `{p}`")
-        lines.append("")
-    untagged = [p for p in library_files() if p not in d["items"]]
-    if untagged:
-        lines.append(f"## 未打标签（{len(untagged)} 张）")
-        lines += [f"- `{p}`" for p in untagged]
-    try:
-        with open(os.path.join(LIB, "REVIEW.md"), "w", encoding="utf-8") as f:
-            f.write("\n".join(lines) + "\n")
-    except OSError:
-        pass
-
-
-def pick(emotion, prefer_local_min_age=180):
-    """发图主入口：本地标签库优先，其次实时抓，最后兜底。"""
-    path = pick_local(emotion, minutes_avoid=prefer_local_min_age)
-    if path and random.random() < 0.45:
-        return path, "local"
-    path, kw = fetch_one(emotion)
-    if path:
-        return path, "live"
-    path = pick_local(emotion) or pick_local(None) or fetch_local_any()
-    return path, "fallback"
+    for meta in idx.values():
+        by_emo[meta.get("emo")] = by_emo.get(meta.get("emo"), 0) + 1
+    return {"池子": len(idx), "分布": by_emo,
+            "候选": len(os.listdir(CAND)) if os.path.isdir(CAND) else 0,
+            "水位": os.path.join(WHALE, "index.json")}
 
 
 if __name__ == "__main__":
-    cmd = sys.argv[1] if len(sys.argv) > 1 else "fetch"
-    if cmd == "fetch":
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "stats"
+    if cmd == "pick":
         emo = sys.argv[2] if len(sys.argv) > 2 else None
-        p, kw = fetch_one(emo)
-        print(json.dumps({"path": p, "keyword": kw}, ensure_ascii=False))
-    elif cmd == "batch":
-        n = int(sys.argv[2]) if len(sys.argv) > 2 else 5
-        got = []
-        for _ in range(n):
-            p, kw = fetch_one()
-            if p:
-                got.append({"path": p, "keyword": kw})
-        print(json.dumps(got, ensure_ascii=False, indent=1))
-    elif cmd == "pick":
-        emo = sys.argv[2] if len(sys.argv) > 2 else "撒娇"
-        print(json.dumps(pick(emo), ensure_ascii=False))
+        p = pick(emo)
+        print(json.dumps(p, ensure_ascii=False) if p else "None")
+    elif cmd == "stats":
+        print(json.dumps(stats(), ensure_ascii=False, indent=1))
+    elif cmd == "sheet":
+        print(sheet() or "没有图")
+    elif cmd == "add" and len(sys.argv) > 3:
+        print(add(sys.argv[2], sys.argv[3]))
+    elif cmd == "fetch":
+        n = int(sys.argv[2]) if len(sys.argv) > 2 else 10
+        print(json.dumps(fetch(n), ensure_ascii=False, indent=1))
+    elif cmd == "search":
+        q = sys.argv[2] if len(sys.argv) > 2 else "鲸鱼娘"
+        for u in search_urls(q)[:20]:
+            print(u)
     elif cmd == "curate":
         print(json.dumps(curate(), ensure_ascii=False, indent=1))
     else:

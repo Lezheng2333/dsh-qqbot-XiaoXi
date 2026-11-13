@@ -80,6 +80,18 @@ python3 people.py show 爸爸          # 跨区看：她印象里的这个人
 python3 people.py name 老王 老王      # 改名 + 称呼
 ```
 
+## 表情包只有鲸鱼娘
+
+爸爸说了：只发鲸鱼/鲸鱼娘系的可爱图，暴走漫画那种"猥琐大汉"一张都不要。
+
+- 可发池子只有一个：`library/whale/`（`index.json` 记情绪标签），现在是 37 张
+  透明底卡通鲸鱼贴纸，全部人工看过、无水印；
+- `stickers.py pick 撒娇` 只会从这个池子里挑；池子里没有合适的就不发图，绝不外抓；
+- 想补充：`stickers.py fetch 6` 用「鲸鱼娘」等关键词搜图，**只进 `library/candidate/`**，
+  等人（或 AI）看过、`stickers.py add <图> <情绪>` 才进池子；
+- 旧的沙雕图全在 `library/trash/` 里（不会再被发出去）；
+- `stickers.py sheet` 生成审图拼图，`stickers.py curate` 体检池子（坏图剔除、池外图归档）。
+
 ## 她能直接写自己的文件夹
 
 她的 agent 工作目录（沙箱根）就是**整个 core 文件夹**（`config.json` 里 `agent_cwd: "."`），
