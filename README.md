@@ -92,6 +92,10 @@ python3 people.py name 老王 老王      # 改名 + 称呼
 - 旧的沙雕图全在 `library/trash/` 里（不会再被发出去）；
 - `stickers.py sheet` 生成审图拼图，`stickers.py curate` 体检池子（坏图剔除、池外图归档）。
 
+现在池子长这样（37 张，`docs/whale_pool.png`）：
+
+![鲸鱼娘表情池](docs/whale_pool.png)
+
 ## 她能直接写自己的文件夹
 
 她的 agent 工作目录（沙箱根）就是**整个 core 文件夹**（`config.json` 里 `agent_cwd: "."`），
